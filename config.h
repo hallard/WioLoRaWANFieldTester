@@ -54,9 +54,10 @@
 #define WITH_SPLASH         1
 #define WITH_SPLASH_HELIUM  1   
 //#define WITH_SPLASH_TTN     1
+//#define JUSTCLEAN
 
 
-#define VERSION "v1.1a"
+#define VERSION "v1.5a"
 
 #ifdef DEBUG
   #define LOGLN(x)  Serial.println x
@@ -78,12 +79,24 @@
   #define LOGLORAF(x)
 #endif
 
+#ifdef DEBUGGPS
+  #define LOGGPSLN(x) Serial.println x
+  #define LOGGPS(x) Serial.print x
+  #define LOGGPSF(x) Serial.printf x
+#else
+  #define LOGGPSLN(x) 
+  #define LOGGPS(x)
+  #define LOGGPSF(x)
+#endif
 
 #define SERIALCONFIG  Serial
 
-#define NONDCZONE_DUTYCYCLE_MS 5000    // Fair use and preserve DCs in MS
+#define NONDCZONE_DUTYCYCLE_MS 25000    // Fair use and preserve DCs in MS
 
 bool readConfig();
 void storeConfig();
+bool storeConfigToBackup();
+bool readConfigFromBackup();
+void clearBackup();
 
 #endif // __CONFIG_H

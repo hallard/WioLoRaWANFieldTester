@@ -87,6 +87,14 @@ void setup() {
   initState();
   initScreen();
   displayTitle();
+  
+  // Specific build to clear the LoRa E5 memory storing the LoRa configuration
+  // that allows firwmare update.
+  #if defined JUSTCLEAN && HWTARGET == LORAE5 
+    quickSetup();
+    clearBackup();
+    while(1);
+  #endif
 
   // Make sure the LoraWan configuration has been made if not wait for the configuration
   boolean zero = true;
@@ -96,9 +104,13 @@ void setup() {
   bool first = true;
   bool hasChange = false;
   if ( zero ) {
-    //configPending();
+    // try to restore backup
+    if ( readConfigFromBackup() ) {
+       storeConfig();
+       NVIC_SystemReset();
+    }
     while (true) {
-      if ( manageConfigScreen(true, first || hasChange ) ){
+      if ( manageConfigScreen(true, first || hasChange, false ) ){
         NVIC_SystemReset();
       }
       first = false;
@@ -106,29 +118,47 @@ void setup() {
     }
   } else if ( digitalRead(WIO_5S_PRESS) == LOW ) {
     while ( digitalRead(WIO_5S_PRESS) == LOW );
-    manageConfigScreen(false,true);
+    manageConfigScreen(false,true, false);
     NVIC_SystemReset();
   }
+
+  #if HWTARGET == LORAE5
+  if ( loraConf.zone == ZONE_LATER ) {
+    loraConf.zone = ZONE_UNDEFINED;
+    manageConfigScreen(false,true,true);
+    NVIC_SystemReset();
+  }
+  #endif
 
   gpsSetup();
   displaySplash();
   loraSetup();
-  clearScreen();
+  // at this point configuration is ready
+  if ( ! state.cnfBack ) {
+     // backup config
+     if ( storeConfigToBackup() ) {
+        storeConfig(); // update backup status
+     }
+  }
 
+
+  clearScreen();
   screenSetup();
   analogReference(AR_INTERNAL2V23);
+
 }
 
 
 void loop(void) {
 
-  static long cTime = 0;
-  static long batUpdateTime = 0;
+  static unsigned long cTime = 0;
+  static unsigned long batUpdateTime = 0;
+  unsigned long sTime;
+  bool fireMessage;
 
-  long sTime = millis();
-  bool fireMessage = false;
-
-
+  sTime = millis();
+  fireMessage = false;
+  
   #ifdef WITH_LIPO
     if ( batUpdateTime > 1000 ) {
       #if HWTARGET == RFM95
@@ -154,6 +184,7 @@ void loop(void) {
     
   refresUI();
   switch ( ui.selected_mode ) {
+    default:
     case MODE_MANUAL:
       if ( ui.hasClick && canLoRaSend() ) { 
         fireMessage = true;
@@ -173,35 +204,55 @@ void loop(void) {
       if ( cTime >= ( 1 * 60 * 1000 ) && canLoRaSend() ) fireMessage = true;
       break;
     case MODE_MAX_RATE:
-      if ( canLoRaSend() ) fireMessage = true;
+      #ifdef WITH_GPS
+        // join on start
+        if ( ( state.cState == NOT_JOINED || state.cState == JOIN_FAILED ) && canLoRaSend() ) fireMessage = true;
+        
+        // in case no GPS, we switch to 60s minimum
+        // for indoor test, manual mode can be use
+        if ( ! gps.isReady || ! gpsQualityIsGoodEnough() ) {
+           if ( cTime >= ( 1 * 60 * 1000 ) && canLoRaSend() ) fireMessage = true;
+        } else {
+           // check distance with the previous sent position
+           // under 50 meters we send messages on every minutes.
+           if ( gpsEstimateDistance() > 50 && canLoRaSend() ) fireMessage = true;
+           else if ( cTime >= ( 1 * 60 * 1000 ) && canLoRaSend() ) fireMessage = true;
+        }
+      #else
+        if ( canLoRaSend() ) fireMessage = true;
+      #endif
       break;
   }
   if ( state.cState == EMPTY_DWNLINK && canLoRaSend() ) {
-    // clean the downlink queue
-    // send messages on port2 : the backend will not proceed port 2.
-    do_send(2, emptyFrame, sizeof(emptyFrame),getCurrentSf(), state.cPwr,true, state.cRetry); 
+      // clean the downlink queue
+      // send messages on port2 : the backend will not proceed port 2.
+      do_send(2, emptyFrame, sizeof(emptyFrame),getCurrentSf(), state.cPwr,true, state.cRetry); 
   } else if ( fireMessage ) {
-    // send a new test message on port 1, backend will create a downlink with information about network side reception
-    cTime = 0;
-    // Fill the frame
-    if ( gps.isReady && gpsQualityIsGoodEnough() ) {
-      uint64_t pos = gpsEncodePosition48b();
-      myFrame[0] = (pos >> 40) & 0xFF;
-      myFrame[1] = (pos >> 32) & 0xFF;
-      myFrame[2] = (pos >> 24) & 0xFF;
-      myFrame[3] = (pos >> 16) & 0xFF;
-      myFrame[4] = (pos >>  8) & 0xFF;
-      myFrame[5] = (pos      ) & 0xFF;
-      myFrame[6] = ((gps.altitude+1000) >> 8) & 0xFF;
-      myFrame[7] = ((gps.altitude+1000)     ) & 0xFF;
-      myFrame[8] = (uint8_t)gps.hdop / 10;
-      myFrame[9] = gps.sats;
-    } else {
-      bzero(myFrame, sizeof(myFrame));
-    }
-    do_send(1, myFrame, sizeof(myFrame),getCurrentSf(), state.cPwr,true, state.cRetry); 
+      // send a new test message on port 1, backend will create a downlink with information about network side reception
+      cTime = 0;
+      // Fill the frame
+      #ifdef WITH_GPS
+        if ( gps.isReady && gpsQualityIsGoodEnough() ) {
+          gpsBackupPosition();
+          uint64_t pos = gpsEncodePosition48b();
+          myFrame[0] = (pos >> 40) & 0xFF;
+          myFrame[1] = (pos >> 32) & 0xFF;
+          myFrame[2] = (pos >> 24) & 0xFF;
+          myFrame[3] = (pos >> 16) & 0xFF;
+          myFrame[4] = (pos >>  8) & 0xFF;
+          myFrame[5] = (pos      ) & 0xFF;
+          myFrame[6] = ((gps.altitude+1000) >> 8) & 0xFF;
+          myFrame[7] = ((gps.altitude+1000)     ) & 0xFF;
+          myFrame[8] = (uint8_t)gps.hdop / 10;
+          myFrame[9] = gps.sats;
+        } else {
+          bzero(myFrame, sizeof(myFrame));
+        }
+      #else
+        bzero(myFrame, sizeof(myFrame));
+      #endif
+      do_send(1, myFrame, sizeof(myFrame),getCurrentSf(), state.cPwr,true, state.cRetry); 
   }
-  
   loraLoop();
   gpsLoop();
   
@@ -211,4 +262,5 @@ void loop(void) {
   if ( duration < 0 ) duration = 10;
   cTime += duration;
   batUpdateTime += duration;
+
 }
