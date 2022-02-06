@@ -19,6 +19,9 @@
  */ 
 #include <FlashStorage.h>
 #include "config.h"
+#if HWTARGET == RFM95
+  #include <lmic.h>
+#endif
 #include "testeur.h"
 #include "ui.h"
 #include "LoRaCom.h"
@@ -28,6 +31,7 @@
 
 #define FLAG_BACKUPED 0x01
 #define FLAG_HIDE_KEY 0x02
+#define FLAG_GPS_OK   0x04
 
 typedef struct {
   uint16_t  magic;
@@ -60,7 +64,7 @@ uint8_t computeCSum(Config * c) {
 
 
 // Load configuration from flash
-// return tru if loaded false if default must be set
+// return true if loaded false if default must be set
 bool readConfig() {
 
   Config c = my_flash_store.read();
@@ -71,6 +75,7 @@ bool readConfig() {
     state.cRetry = c.cRetry;
     state.cnfBack = ((c.flag & FLAG_BACKUPED ) > 0);
     state.hidKey = ((c.flag & FLAG_HIDE_KEY ) > 0);
+    state.gpsOk = ((c.flag & FLAG_GPS_OK ) > 0);
     ui.selected_display = c.selected_display;
     ui.selected_mode = c.selected_mode;
     memcpy(loraConf.deveui, c.deveui, 8);
@@ -96,6 +101,7 @@ void storeConfig() {
   c.flag = 0;
   if ( state.cnfBack ) c.flag |= FLAG_BACKUPED;
   if ( state.hidKey ) c.flag |= FLAG_HIDE_KEY;
+  if ( state.gpsOk ) c.flag |= FLAG_GPS_OK;
 
   memcpy(c.deveui, loraConf.deveui, 8);
   memcpy(c.appeui, loraConf.appeui, 8);
@@ -107,14 +113,13 @@ void storeConfig() {
 
 #if HWTARGET == LORAE5
 
-  #error "******"
   // Use the LoRae5 internal storage to save the config and support firmware update
   bool readConfigFromBackup() {
   
     Config c;
     uint8_t * t = (uint8_t *) &c;
 
-    if ( ! quickSetup() ) return false;
+    if ( ! loraQuickSetup() ) return false;
 
     for ( int k = 0 ; k < sizeof(Config); k++) {
        readOneByte(k, t);
@@ -128,6 +133,7 @@ void storeConfig() {
       state.cRetry = c.cRetry;
       state.cnfBack = ((c.flag & FLAG_BACKUPED ) > 0);
       state.hidKey = ((c.flag & FLAG_HIDE_KEY ) > 0);
+      state.gpsOk = state.gpsOk || ((c.flag & FLAG_GPS_OK ) > 0);
       ui.selected_display = c.selected_display;
       ui.selected_mode = c.selected_mode;
       memcpy(loraConf.deveui, c.deveui, 8);
@@ -151,6 +157,7 @@ void storeConfig() {
     c.cRetry = state.cRetry;
     c.flag = FLAG_BACKUPED;
     if ( state.hidKey ) c.flag |= FLAG_HIDE_KEY;
+    if ( state.gpsOk ) c.flag |= FLAG_GPS_OK;
     c.selected_display = ui.selected_display;
     c.selected_mode = ui.selected_mode;
     c.zone = loraConf.zone;

@@ -63,8 +63,8 @@ bool processATResponse();
 
 /**
  * Execute an AT command with a timeout
- * Search for okResp or errResp to determine is the commande is a success or a fail
- * When ending is defined, it search for this sentense to consider end of response
+ * Search for okResp or errResp to determine is the command is a success or a fail
+ * When ending is defined, it search for this sentence to consider end of response
  * Can be executed as a sync or async command.
  * okResp and errResp can use joker char with '*'
  * The okResp / errResp surch is a startsWith operation
@@ -463,7 +463,7 @@ uint32_t txDurationEstimate(uint8_t _dr) {
 
 // ---------------------------------------------------------------------
 // Manage transmission response asynchronously
-// exemple :
+// example :
 // 12:23:29.618 -> AT+CMSGHEX=20591A02324505490C07
 // 12:23:29.721 -> +CMSGHEX: Start
 // 12:23:29.721 -> +CMSGHEX: Wait ACK
@@ -780,9 +780,10 @@ uint32_t nextPossibleSendMs(){
 }
 
 
-bool quickSetup() {
+bool loraQuickSetup() {
   SERIALE5.begin(9600);
-  while(!SERIALE5);
+  uint32_t start = millis();
+  while ( !SERIALE5 && (millis() - start) < 2000 );
   loraContext.runningCommand = false;
   if ( ! sendATCommand("AT","+AT: OK","","",DEFAULT_TIMEOUT,false, NULL) ) {
     // retry

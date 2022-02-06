@@ -24,6 +24,10 @@
 #include "ui.h"
 #include "LoRaCom.h"
 
+#if HWTARGET == RFM95
+  #include <lmic.h>
+#endif
+
 // init data to verify display
 #ifdef DEBUGDATA
 void initDebug() {
@@ -48,7 +52,15 @@ void initState() {
     uint8_t  _APPKEY[16] = __APPKEY;
 
     // Config initial setup
-    loraConf.zone = __ZONE;
+    #if HWTARGET == RFM95
+     #if defined CFG_eu868
+       loraConf.zone = ZONE_EU868;
+      #elif defined CFG_us915
+       loraConf.zone = ZONE_US915;
+      #endif
+    #else    
+      loraConf.zone = __ZONE;
+    #endif
     tst_setPower(MAXPOWER);  
     tst_setSf(SLOWERSF);      
     tst_setRetry(0);
@@ -60,7 +72,8 @@ void initState() {
 
     state.cnfBack = false;
     state.hidKey = false;
-
+    state.gpsOk = false;
+    
     storeConfig();
   }
   state.cState = NOT_JOINED;
@@ -141,7 +154,7 @@ void tst_setPower(int8_t pwr) {
     #endif
   } else if ( loraConf.zone == ZONE_AS923_1 || loraConf.zone == ZONE_AS923_2 ||  loraConf.zone == ZONE_AS923_3 ||  loraConf.zone == ZONE_AS923_4 ) {
     if ( pwr == MAXPOWER ) {
-      // just to make sure on init we are limiting to 16dBm as some coutry in AS923 have this limit
+      // just to make sure on init we are limiting to 16dBm as some country in AS923 have this limit
       // need to get the detail for each subzone definition.
       pwr = 16;
     }
